@@ -1,7 +1,12 @@
 import axios from 'axios'
 import * as SecureStore from 'expo-secure-store'
+import { Platform } from 'react-native'
 
-const API_BASE = 'https://tms-momentum-api.vercel.app/api'
+const API_BASE = __DEV__
+  ? Platform.OS === 'android'
+    ? 'http://10.0.2.2:5000/api'
+    : 'http://localhost:5000/api'
+  : 'https://tms-momentum-api.vercel.app/api'
 
 const client = axios.create({
   baseURL: API_BASE,

@@ -84,7 +84,7 @@ function AmountSummary({ collected, remaining }: { collected: number; remaining:
 
 function ExportBtn({ onPress, disabled }: { onPress: () => void; disabled?: boolean }) {
   return (
-    <TouchableOpacity style={styles.exportBtn} onPress={onPress} disabled={disabled}>
+    <TouchableOpacity testID="export-pdf-btn" style={styles.exportBtn} onPress={onPress} disabled={disabled}>
       <MaterialCommunityIcons name="file-pdf-box" size={14} color={colors.danger} />
       <Text style={styles.exportBtnText}>Export PDF</Text>
     </TouchableOpacity>
@@ -138,8 +138,8 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
         title = 'Extra Payments Report'; headers = ['Plate', 'Driver', 'Amount', 'Reason', 'Status', 'Date']
         rows = extraList.map((x: any) => [x.taxi?.plateNumber || 'N/A', x.driver?.name || '', fmt(x.amount), x.reason || '-', x.status || 'pending', fd(x.paymentDate || x.createdAt)])
       } else if (tabKey === 'transactions') {
-        title = 'Transactions Report'; headers = ['Type', 'Title', 'Driver/Reason', 'Amount', 'Date']
-        rows = allTransactions.map(t => [t.type, t.title, t.subtitle, fmt(t.amount), fd(t.date)])
+        title = 'Transactions Report'; headers = ['Type', 'Title', 'Driver/Reason', 'Amount', 'Date', 'Payment Date']
+        rows = allTransactions.map(t => [t.type, t.title, t.subtitle, fmt(t.amount), fd(t.date), t.paymentDate ? fd(t.paymentDate) : '-'])
       } else if (tabKey === 'pending') {
         title = 'Pending Report'; headers = ['Plate', 'Driver', 'Working Days', 'Paid Days', 'Pending Days', 'Collected', 'Due']
         rows = pending.map((p: any) => [p.taxi?.plateNumber || '', p.driver?.name || 'No driver', p.workingDays || 0, p.paidDays || 0, p.pendingDays || 0, fmt((p.paidDays || 0) * (p.taxi?.dailyRate || 0)), fmt(p.outstandingAmount || 0)])
@@ -190,11 +190,11 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
   const totalExpenses = useMemo(() => expList.reduce((s: number, e: any) => s + (e.amount || 0), 0), [expList])
   const totalExtra = useMemo(() => extraList.reduce((s: number, x: any) => s + (x.amount || 0), 0), [extraList])
   const allTransactions = useMemo(() => {
-    const txns: { type: string; icon: string; color: string; bg: string; title: string; subtitle: string; amount: number; date: string; id: string }[] = []
+    const txns: { type: string; icon: string; color: string; bg: string; title: string; subtitle: string; amount: number; date: string; paymentDate?: string; id: string }[] = []
     incList.forEach((i: any) => txns.push({ type: 'Income', icon: 'trending-up', color: colors.success, bg: colors.successLight, title: `Income — ${i.taxi?.plateNumber || ''}`, subtitle: i.driver?.name || '', amount: i.amount, date: i.date, id: i._id }))
     expList.forEach((e: any) => txns.push({ type: 'Expense', icon: 'cash-remove', color: colors.danger, bg: colors.dangerLight, title: `Expense — ${e.taxi?.plateNumber || ''}`, subtitle: e.driver?.name || e.category || '', amount: -(e.amount), date: e.date, id: e._id }))
-    payList.forEach((p: any) => txns.push({ type: 'Payment', icon: 'cash-check', color: colors.primary, bg: colors.infoLight, title: `Payment — ${p.taxi?.plateNumber || ''}`, subtitle: p.driver?.name || '', amount: p.amountPaid, date: p.date, id: p._id }))
-    extraList.forEach((x: any) => txns.push({ type: 'Extra Payment', icon: 'cash-plus', color: colors.warning, bg: colors.warningLight, title: `Extra Payment — ${x.taxi?.plateNumber || ''}`, subtitle: x.driver?.name || x.reason || '', amount: x.amount, date: x.paymentDate || x.createdAt, id: x._id }))
+    payList.forEach((p: any) => txns.push({ type: 'Payment', icon: 'cash-check', color: colors.primary, bg: colors.infoLight, title: `Payment — ${p.taxi?.plateNumber || ''}`, subtitle: p.driver?.name || '', amount: p.amountPaid, date: p.date, paymentDate: p.paymentDate || p.paidAt, id: p._id }))
+    extraList.forEach((x: any) => txns.push({ type: 'Extra Payment', icon: 'cash-plus', color: colors.warning, bg: colors.warningLight, title: `Extra Payment — ${x.taxi?.plateNumber || ''}`, subtitle: x.driver?.name || x.reason || '', amount: x.amount, date: x.paymentDate || x.createdAt, paymentDate: x.paymentDate, id: x._id }))
     return txns.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   }, [incList, expList, payList, extraList])
 
@@ -528,6 +528,11 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
                     <View style={[styles.listBadge, { backgroundColor: t.bg }]}>
                       <Text style={[styles.listBadgeText, { color: t.color }]}>{t.type}</Text>
                     </View>
+                    {t.paymentDate ? (
+                      <View style={[styles.listBadge, { backgroundColor: colors.infoLight }]}>
+                        <Text style={[styles.listBadgeText, { color: colors.info }]}>Paid: {fd(t.paymentDate)}</Text>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
               ))}
@@ -576,7 +581,7 @@ export default function ReportsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <GradientHeader title="Reports" subtitle="Analytics and insights" icon="file-chart">
-        <TouchableOpacity onPress={() => setShowFilter(!showFilter)} style={styles.filterBtn}>
+        <TouchableOpacity testID="filter-toggle" onPress={() => setShowFilter(!showFilter)} style={styles.filterBtn}>
           <View style={[styles.filterBadge, hasFilter && styles.filterBadgeActive]}>
             <MaterialCommunityIcons name={showFilter ? 'filter-remove' : 'filter'} size={18} color={colors.textInverse} />
             {hasFilter && <View style={styles.filterDot} />}
@@ -591,17 +596,17 @@ export default function ReportsScreen() {
             <View style={styles.filterRow}>
               <View style={styles.filterField}>
                 <Text style={styles.filterLabel}>From</Text>
-                <TextInput style={styles.filterInput} value={fromDate} onChangeText={setFromDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textTertiary} />
+                <TextInput testID="date-from" style={styles.filterInput} value={fromDate} onChangeText={setFromDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textTertiary} />
               </View>
               <View style={styles.filterField}>
                 <Text style={styles.filterLabel}>To</Text>
-                <TextInput style={styles.filterInput} value={toDate} onChangeText={setToDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textTertiary} />
+                <TextInput testID="date-to" style={styles.filterInput} value={toDate} onChangeText={setToDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textTertiary} />
               </View>
             </View>
           </View>
           <View style={styles.filterSection}>
             <Text style={styles.filterSectionTitle}>Taxi</Text>
-            <TouchableOpacity style={styles.taxiSelector} onPress={() => setShowTaxiPicker(true)}>
+            <TouchableOpacity testID="taxi-selector" style={styles.taxiSelector} onPress={() => setShowTaxiPicker(true)}>
               <MaterialCommunityIcons name="car" size={16} color={colors.primary} />
               <Text style={[styles.taxiSelectorText, !selectedTaxi && { color: colors.textTertiary }]}>
                 {selectedTaxiObj ? selectedTaxiObj.plateNumber : 'All Taxis'}
@@ -622,7 +627,7 @@ export default function ReportsScreen() {
         {tabs.map((t) => {
           const active = tab === t.key
           return (
-            <TouchableOpacity key={t.key} style={[styles.tab, active && styles.tabActive]} onPress={() => setTab(t.key)}>
+            <TouchableOpacity testID={`report-tab-${t.key}`} key={t.key} style={[styles.tab, active && styles.tabActive]} onPress={() => setTab(t.key)}>
               {active ? (
                 <LinearGradient colors={t.gradient as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tabGradient}>
                   <MaterialCommunityIcons name={t.icon as any} size={13} color={colors.textInverse} />

@@ -112,7 +112,7 @@ export default function DashboardScreen() {
   const hasCollections = !colLoading && collections && collections.length > 0
 
   return (
-    <SafeAreaView style={s.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView testID="dashboard-screen" style={s.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />}>
         <GradientHeader title="Dashboard" subtitle="Overview of your operations" icon="view-dashboard" showLogout />

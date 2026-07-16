@@ -32,7 +32,8 @@ export default function SuperAdminDailyPaymentsScreen() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const { data: taxisData, loading: tLoading, refresh: refreshTaxis } = useApi<any>(() => taxis.list({ isActive: true, limit: 200 }), [])
-  const { data: payData, loading: pLoading, refresh: refreshPay } = useApi<any>(() => dailyPayments.list({ limit: 50, sort: 'date', order: 'desc' }), [])
+  const [searchText, setSearchText] = useState('')
+  const { data: payData, loading: pLoading, refresh: refreshPay } = useApi<any>(() => dailyPayments.list({ limit: 50, sort: 'date', order: 'desc', search: searchText || undefined }), [searchText])
   const { data: apprData, loading: aLoading, refresh: refreshAppr } = useApi<any>(() => dailyPayments.getPendingApprovals(), [])
 
   const onRefresh = useCallback(() => {
@@ -76,7 +77,7 @@ export default function SuperAdminDailyPaymentsScreen() {
       <GradientHeader title="Daily Payments" icon="calendar-check" />
       <View style={styles.tabRow}>
         {(['calendar', 'payments', 'approvals'] as SubTab[]).map((st) => (
-          <TouchableOpacity key={st} style={[styles.tab, tab === st && styles.tabActive]} onPress={() => setTab(st)}>
+          <TouchableOpacity testID={`sa-tab-${st}`} key={st} style={[styles.tab, tab === st && styles.tabActive]} onPress={() => setTab(st)}>
             <MaterialCommunityIcons name={st === 'calendar' ? 'car' : st === 'payments' ? 'cash' : 'check-circle'} size={14} color={tab === st ? colors.textInverse : colors.textTertiary} />
             <Text style={[styles.tabText, tab === st && styles.tabTextActive]}>{st.charAt(0).toUpperCase() + st.slice(1)}{st === 'approvals' && apprList.length > 0 ? ` (${apprList.length})` : ''}</Text>
           </TouchableOpacity>
@@ -108,11 +109,21 @@ export default function SuperAdminDailyPaymentsScreen() {
             </View>
           )
         ) : tab === 'payments' ? (
-          pLoading && payList.length === 0 ? <View style={styles.loadingCentered}><ActivityIndicator size="large" color={colors.primary} /></View> : payList.length === 0 ? <Text style={styles.emptyText}>No payments found</Text> : payList.map((item, i) => (
+          <>
+            <View style={styles.searchRow}>
+              <MaterialCommunityIcons name="magnify" size={16} color={colors.textTertiary} />
+              <TextInput testID="sa-payments-search" style={styles.searchInput} value={searchText} onChangeText={setSearchText} placeholder="Search by taxi or driver..." placeholderTextColor={colors.textTertiary} />
+              {searchText ? (
+                <TouchableOpacity onPress={() => setSearchText('')}>
+                  <MaterialCommunityIcons name="close-circle" size={16} color={colors.textTertiary} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {pLoading && payList.length === 0 ? <View style={styles.loadingCentered}><ActivityIndicator size="large" color={colors.primary} /></View> : payList.length === 0 ? <Text style={styles.emptyText}>No payments found</Text> : payList.map((item, i) => (
             <GradientCard key={item._id ?? i} title={item.taxi?.plateNumber || 'N/A'} subtitle={item.driver?.name || ''} value={formatCurrency(item.amountPaid)} valueColor={colors.success}>
               <View style={styles.cardRow}><Text style={styles.cardStat}>Due: {formatCurrency(item.amountDue)}</Text><Text style={styles.cardStat}>Status: {item.status?.replace('_', ' ') || 'N/A'}</Text><Text style={styles.cardStat}>{formatDate(item.date)}</Text></View>
             </GradientCard>
-          ))
+          ))}</>
         ) : (
           aLoading && apprList.length === 0 ? <View style={styles.loadingCentered}><ActivityIndicator size="large" color={colors.primary} /></View> : apprList.length === 0 ? <Text style={styles.emptyText}>No pending approvals</Text> : apprList.map((item, i) => (
             <GradientCard key={item._id ?? i} title={item.taxi?.plateNumber || 'N/A'} subtitle={item.driver?.name || ''} value={formatCurrency(item.amountDue)} valueColor={colors.purple}>
@@ -179,4 +190,6 @@ const styles = StyleSheet.create({
   metText: { fontSize: 12, fontWeight: '500', color: colors.textSecondary },
   metTextActive: { color: colors.textInverse },
   modalActions: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceSecondary, borderRadius: borderRadius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.borderLight },
+  searchInput: { flex: 1, fontSize: 13, color: colors.text, paddingVertical: 4 },
 })

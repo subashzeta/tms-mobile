@@ -47,7 +47,7 @@ export default function LoginScreen() {
             <Text style={styles.label}>Email</Text>
             <View style={styles.inputWrap}>
               <MaterialCommunityIcons name="email-outline" size={16} color={colors.textTertiary} style={styles.inputIcon} />
-              <TextInput style={styles.input} value={email} onChangeText={setEmail} placeholder="Enter your email" placeholderTextColor={colors.textTertiary} autoCapitalize="none" autoCorrect={false} returnKeyType="next" onSubmitEditing={() => passRef.current?.focus()} blurOnSubmit={false} editable={!loading} />
+              <TextInput testID="email-input" style={styles.input} value={email} onChangeText={setEmail} placeholder="Enter your email" placeholderTextColor={colors.textTertiary} autoCapitalize="none" autoCorrect={false} returnKeyType="next" onSubmitEditing={() => passRef.current?.focus()} blurOnSubmit={false} editable={!loading} />
             </View>
           </View>
 
@@ -55,11 +55,11 @@ export default function LoginScreen() {
             <Text style={styles.label}>Password</Text>
             <View style={styles.inputWrap}>
               <MaterialCommunityIcons name="lock-outline" size={16} color={colors.textTertiary} style={styles.inputIcon} />
-              <TextInput ref={passRef} style={styles.input} value={password} onChangeText={setPassword} placeholder="Enter your password" placeholderTextColor={colors.textTertiary} secureTextEntry returnKeyType="done" onSubmitEditing={handleLogin} editable={!loading} />
+              <TextInput testID="password-input" ref={passRef} style={styles.input} value={password} onChangeText={setPassword} placeholder="Enter your password" placeholderTextColor={colors.textTertiary} secureTextEntry returnKeyType="done" onSubmitEditing={handleLogin} editable={!loading} />
             </View>
           </View>
 
-          <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleLogin} disabled={loading} activeOpacity={0.8}>
+          <TouchableOpacity testID="login-button" style={[styles.button, loading && styles.buttonDisabled]} onPress={handleLogin} disabled={loading} activeOpacity={0.8}>
             <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
               {loading ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.buttonText}>Sign In</Text>}
             </LinearGradient>

@@ -40,7 +40,8 @@ export default function DailyPaymentsScreen() {
 
   const { data: taxisData, loading: tLoading, refresh: refreshT } = useApi<any>(() => taxis.list({ isActive: true, limit: 200 }), [])
   const { data: pendingData, loading: pdLoading, refresh: refreshPd } = useApi<any>(() => dailyPayments.getPendingByTaxi({ range: 'tillToday', includeAll: 'true' }), [])
-  const { data: payData, loading: pLoading, refresh: refreshP } = useApi<any>(() => dailyPayments.list({ limit: 50, sort: 'date', order: 'desc' }), [])
+  const [searchText, setSearchText] = useState('')
+  const { data: payData, loading: pLoading, refresh: refreshP } = useApi<any>(() => dailyPayments.list({ limit: 50, sort: 'date', order: 'desc', search: searchText || undefined }), [searchText])
   const { data: apprData, loading: aLoading, refresh: refreshA } = useApi<any>(() => dailyPayments.getPendingApprovals(), [])
   const { data: incData, loading: iLoading, refresh: refreshI } = useApi<any>(() => income.list({ limit: 50, sort: 'date', order: 'desc' }), [])
 
@@ -136,7 +137,7 @@ export default function DailyPaymentsScreen() {
 
       <View style={styles.tabRow}>
         {tabs.map(t => (
-          <TouchableOpacity key={t.key} style={[styles.tab, tab === t.key && styles.tabA]} onPress={() => setTab(t.key)}>
+          <TouchableOpacity testID={`tab-${t.key}`} key={t.key} style={[styles.tab, tab === t.key && styles.tabA]} onPress={() => setTab(t.key)}>
             <MaterialCommunityIcons name={t.icon as any} size={13} color={tab === t.key ? colors.textInverse : colors.textTertiary} />
             <Text style={[styles.tabT, tab === t.key && styles.tabTA]}>{t.label}{t.key === 'approvals' && apprList.length > 0 ? ` (${apprList.length})` : ''}</Text>
           </TouchableOpacity>
@@ -196,7 +197,17 @@ export default function DailyPaymentsScreen() {
             )}
           </View>
         ) : tab === 'payments' ? (
-          pLoading && payList.length === 0 ? <ActivityIndicator size="large" color={colors.primary} style={{ padding: 60 }} /> :
+          <>
+            <View style={styles.searchRow}>
+              <MaterialCommunityIcons name="magnify" size={16} color={colors.textTertiary} />
+              <TextInput testID="payments-search" style={styles.searchInput} value={searchText} onChangeText={setSearchText} placeholder="Search by taxi or driver..." placeholderTextColor={colors.textTertiary} />
+              {searchText ? (
+                <TouchableOpacity onPress={() => setSearchText('')}>
+                  <MaterialCommunityIcons name="close-circle" size={16} color={colors.textTertiary} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {pLoading && payList.length === 0 ? <ActivityIndicator size="large" color={colors.primary} style={{ padding: 60 }} /> :
           payList.length === 0 ? <Text style={styles.empty}>No payments found</Text> : (() => {
             const grouped: Record<string, any[]> = {}
             payList.forEach((item: any) => {
@@ -278,7 +289,8 @@ export default function DailyPaymentsScreen() {
                 })}
               </View>
             ))
-          })()
+          })()}
+          </>
         ) : tab === 'approvals' ? (
           aLoading && apprList.length === 0 ? <ActivityIndicator size="large" color={colors.primary} style={{ padding: 60 }} /> :
           apprList.length === 0 ? <Text style={styles.empty}>No pending approvals</Text> :
@@ -525,4 +537,6 @@ const styles = StyleSheet.create({
   saveB: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: colors.primary, paddingVertical: 12, borderRadius: borderRadius.md },
   canB: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 12, borderRadius: borderRadius.md, borderWidth: 1.5, borderColor: colors.border },
   canBT: { fontSize: 15, fontWeight: '500', color: colors.textSecondary },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surface, borderRadius: borderRadius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.borderLight },
+  searchInput: { flex: 1, fontSize: 13, color: colors.text, paddingVertical: 4 },
 })
