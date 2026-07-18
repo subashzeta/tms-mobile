@@ -9,6 +9,7 @@ import { useApi } from '../../hooks/useApi'
 import { dailyPayments, income, expenditure, extraPayments, taxis as taxisApi, reports } from '../../api/endpoints'
 import type { Taxi } from '../../types'
 import { GradientHeader } from '../../components/GradientHeader'
+import { PaymentCalendar } from '../../components/PaymentCalendar'
 import { useToast } from '../../components/Toast'
 import { colors, gradients, spacing, borderRadius, shadow } from '../../theme'
 
@@ -45,10 +46,11 @@ async function generateReportPDF(title: string, headers: string[], rows: (string
   return uri
 }
 
-type ReportTab = 'pending' | 'income' | 'expenses' | 'payments' | 'extra' | 'transactions'
+type ReportTab = 'calendar' | 'pending' | 'income' | 'expenses' | 'payments' | 'extra' | 'transactions'
 type PendingView = 'monthly' | 'till-date'
 
 const tabs: { key: ReportTab; label: string; icon: string; gradient: readonly string[] }[] = [
+  { key: 'calendar', label: 'Calendar', icon: 'calendar-month', gradient: ['#3B82F6', '#60A5FA'] },
   { key: 'pending', label: 'Pending', icon: 'clock-outline', gradient: gradients.warning },
   { key: 'income', label: 'Income', icon: 'trending-up', gradient: gradients.success },
   { key: 'expenses', label: 'Expenditure', icon: 'cash-remove', gradient: gradients.danger },
@@ -95,6 +97,8 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
   tab: ReportTab; dateParams: Record<string, string>; pendingView: PendingView; setPendingView: (v: PendingView) => void
 }) {
   const toast = useToast()
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth() + 1)
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const { data: pendingMonthly, loading: pendingMLoading } = useApi<any>(() => dailyPayments.getPendingByTaxi({ ...dateParams }), [dateParams.from, dateParams.to, dateParams.taxi])
   const { data: pendingTillDate, loading: pendingTLoading } = useApi<any>(() => reports.getPendingUptoDate({ taxi: dateParams.taxi }), [dateParams.taxi])
   const pendingRaw = pendingView === 'till-date' ? (Array.isArray(pendingTillDate) ? pendingTillDate : pendingTillDate?.data ?? []) : (Array.isArray(pendingMonthly) ? pendingMonthly : pendingMonthly?.data ?? [])
@@ -121,22 +125,29 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
   const handleExportPDF = async (tabKey: string) => {
     setExporting(true)
     try {
+      const exportTypeMap: Record<string, string> = {
+        income: 'income', expenses: 'expenditure', payments: 'payments',
+        extra: 'extra-payments', transactions: 'transactions', pending: 'pending',
+      }
+      const exportType = exportTypeMap[tabKey] || 'transactions'
+      const allData = tabKey === 'pending' ? pending : await reports.getExportData({ ...dateParams, type: exportType })
+
       let title = '', headers: string[] = [], rows: (string | number)[][] = []
       if (tabKey === 'income') {
         title = 'Income Report'; headers = ['Plate', 'Driver', 'Amount', 'Date', 'Shift', 'Status']
-        rows = incList.map((i: any) => [i.taxi?.plateNumber || 'N/A', i.driver?.name || '', fmt(i.amount), fd(i.date), i.shift || '-', i.verifiedAt ? 'Verified' : 'Pending'])
+        rows = (allData || []).map((i: any) => [i.taxi?.plateNumber || 'N/A', i.driver?.name || '', fmt(i.amount), fd(i.date), i.shift || '-', i.verifiedAt ? 'Verified' : 'Pending'])
       } else if (tabKey === 'expenses') {
         title = 'Expenditure Report'; headers = ['Plate', 'Category', 'Amount', 'Date', 'Vendor', 'Approved']
-        rows = expList.map((e: any) => [e.taxi?.plateNumber || 'N/A', e.category || '-', fmt(e.amount), fd(e.date), e.vendor || '-', e.approvedBy ? 'Yes' : 'No'])
+        rows = (allData || []).map((e: any) => [e.taxi?.plateNumber || 'N/A', e.category || '-', fmt(e.amount), fd(e.date), e.vendor || '-', e.approvedBy ? 'Yes' : 'No'])
       } else if (tabKey === 'payments') {
         title = 'Payments Report'; headers = ['Plate', 'Driver', 'Paid', 'Due', 'Balance', 'Status', 'Date']
-        rows = payList.map((p: any) => {
+        rows = (allData || []).map((p: any) => {
           const bal = Math.max(0, (p.amountDue || 0) - (p.amountPaid || 0))
           return [p.taxi?.plateNumber || 'N/A', p.driver?.name || '', fmt(p.amountPaid), fmt(p.amountDue), fmt(bal), p.status || '-', fd(p.paymentDate || p.createdAt)]
         })
       } else if (tabKey === 'extra') {
         title = 'Extra Payments Report'; headers = ['Plate', 'Driver', 'Amount', 'Reason', 'Status', 'Date']
-        rows = extraList.map((x: any) => [x.taxi?.plateNumber || 'N/A', x.driver?.name || '', fmt(x.amount), x.reason || '-', x.status || 'pending', fd(x.paymentDate || x.createdAt)])
+        rows = (allData || []).map((x: any) => [x.taxi?.plateNumber || 'N/A', x.driver?.name || '', fmt(x.amount), x.reason || '-', x.status || 'pending', fd(x.paymentDate || x.createdAt)])
       } else if (tabKey === 'transactions') {
         title = 'Transactions Report'; headers = ['Type', 'Title', 'Driver/Reason', 'Amount', 'Date', 'Payment Date']
         rows = allTransactions.map(t => [t.type, t.title, t.subtitle, fmt(t.amount), fd(t.date), t.paymentDate ? fd(t.paymentDate) : '-'])
@@ -197,6 +208,18 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
     extraList.forEach((x: any) => txns.push({ type: 'Extra Payment', icon: 'cash-plus', color: colors.warning, bg: colors.warningLight, title: `Extra Payment — ${x.taxi?.plateNumber || ''}`, subtitle: x.driver?.name || x.reason || '', amount: x.amount, date: x.paymentDate || x.createdAt, paymentDate: x.paymentDate, id: x._id }))
     return txns.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   }, [incList, expList, payList, extraList])
+
+  if (tab === 'calendar') {
+    return (
+      <View>
+        <PaymentCalendar
+          year={calYear}
+          month={calMonth}
+          onMonthChange={(y, m) => { setCalYear(y); setCalMonth(m) }}
+        />
+      </View>
+    )
+  }
 
   if (tab === 'pending') {
     const totalCollectedAll = pending.reduce((s: number, p: any) => s + (p.paidDays || 0) * (p.taxi?.dailyRate || 0), 0)

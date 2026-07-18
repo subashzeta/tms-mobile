@@ -236,4 +236,6 @@ export const reports = {
     client.get('/reports/payment-calendar', { params }).then(r => r.data.data),
   getPendingUptoDate: (params?: any) =>
     client.get('/reports/pending-upto-date', { params }).then(r => r.data.data),
+  getExportData: (params?: any) =>
+    client.get('/reports/export-data', { params }).then(r => r.data.data),
 }

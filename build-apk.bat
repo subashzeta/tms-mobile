@@ -7,13 +7,13 @@ echo ===== TMS Mobile APK Builder =====
 cd /d D:\tms\tms-mobile
 
 echo [1/3] Running Expo prebuild...
-call npx expo prebuild 2>nul
+call npx expo prebuild --clean 2>nul
 
 echo [2/3] Patching Gradle to 8.13 (compatible with JDK 21)...
-set GRADLE_PROP=D:\tms\tms-mobile\android\gradle\wrapper\gradle-wrapper.properties
+set GRADLE_PROP=D:\subashzetaWork\tms\tms-mobile\android\gradle\wrapper\gradle-wrapper.properties
 powershell -Command "(Get-Content '%GRADLE_PROP%') -replace 'gradle-9.*-bin.zip', 'gradle-8.13-bin.zip' | Set-Content '%GRADLE_PROP%'"
 
-echo [3/3] Building APK...
+echo [3/3] Building APK (Release)...
 cd android
 call ./gradlew assembleRelease
 

@@ -3,26 +3,29 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
-import { dailyPayments } from '../api/endpoints'
+import { reports } from '../api/endpoints'
 
-interface CalendarDay {
-  date: number
-  fullDate: string
-  isCurrentMonth: boolean
-  status?: 'paid' | 'partial' | 'pending' | 'leave' | 'unallocated' | 'overdue'
+interface TaxiEntry {
+  taxiId: string
+  plateNumber: string
+  color: string
+  driverName?: string
+}
+
+interface CalendarData {
+  calendar: Record<string, TaxiEntry[]>
+  taxis: (TaxiEntry & { driverName: string })[]
 }
 
 interface PaymentCalendarProps {
   year: number
   month: number
   onMonthChange?: (year: number, month: number) => void
-  onDayPress?: (day: CalendarDay, selectedDates: string[]) => void
-  selectedDates?: string[]
-  taxiId?: string
-  driverId?: string
-  multiSelect?: boolean
   showLegend?: boolean
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate()
@@ -32,87 +35,76 @@ function getFirstDayOfMonth(year: number, month: number): number {
   return new Date(year, month - 1, 1).getDay()
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
 function pad(n: number) { return n < 10 ? '0' + n : String(n) }
 
-const statusColors: Record<string, { bg: string; text: string; dot: string }> = {
-  paid: { bg: '#D1FAE5', text: '#065F46', dot: '#059669' },
-  partial: { bg: '#FEF3C7', text: '#92400E', dot: '#D97706' },
-  pending: { bg: '#FEE2E2', text: '#991B1B', dot: '#DC2626' },
-  leave: { bg: '#DBEAFE', text: '#1E40AF', dot: '#3B82F6' },
-  unallocated: { bg: '#F3F4F6', text: '#9CA3AF', dot: '#9CA3AF' },
-  overdue: { bg: '#FEF2F2', text: '#991B1B', dot: '#DC2626' },
+function toDateStr(y: number, m: number, d: number) {
+  return `${y}-${pad(m)}-${pad(d)}`
 }
 
 export function PaymentCalendar({
-  year, month, onMonthChange, onDayPress, selectedDates: externalSelected,
-  taxiId, driverId, multiSelect = false, showLegend = true,
+  year, month, onMonthChange, showLegend = true,
 }: PaymentCalendarProps) {
-  const [internalSelected, setInternalSelected] = useState<string[]>([])
-  const [paidDates, setPaidDates] = useState<string[]>([])
+  const [calData, setCalData] = useState<CalendarData | null>(null)
   const [loading, setLoading] = useState(false)
-
-  const selected = externalSelected ?? internalSelected
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [showTaxiLegend, setShowTaxiLegend] = useState(false)
 
   const daysInMonth = getDaysInMonth(year, month)
   const firstDay = getFirstDayOfMonth(year, month)
 
-  const startDate = `${year}-${pad(month)}-01`
-  const endDate = `${year}-${pad(month)}-${pad(daysInMonth)}`
+  const todayStr = useMemo(() => {
+    const d = new Date()
+    return toDateStr(d.getFullYear(), d.getMonth() + 1, d.getDate())
+  }, [])
 
   useEffect(() => {
-    loadPaidDates()
-  }, [year, month, taxiId, driverId])
+    loadCalendarData()
+  }, [year, month])
 
-  const loadPaidDates = async () => {
+  const loadCalendarData = async () => {
     setLoading(true)
     try {
-      const params: any = { from: startDate, to: endDate }
-      if (taxiId) params.taxiId = taxiId
-      if (driverId) params.driverId = driverId
-      const result = await dailyPayments.getPaidDates(params)
-      setPaidDates(Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : [])
+      const data = await reports.getPaymentCalendar({ month, year })
+      setCalData(data)
     } catch {
-      setPaidDates([])
-    } finally { setLoading(false) }
+      setCalData(null)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const toggleDate = (fullDate: string) => {
-    if (!multiSelect && !onDayPress) return
-    let newSelected: string[]
-    if (multiSelect) {
-      if (selected.includes(fullDate)) {
-        newSelected = selected.filter(d => d !== fullDate)
-      } else {
-        newSelected = [...selected, fullDate].sort()
-      }
-    } else {
-      newSelected = selected[0] === fullDate ? [] : [fullDate]
-    }
-    setInternalSelected(newSelected)
-    const day = calendarDays.find(d => d?.fullDate === fullDate)
-    if (day) onDayPress?.(day, newSelected)
-  }
-
-  const calendarDays: (CalendarDay | null)[] = useMemo(() => {
-    const days: (CalendarDay | null)[] = []
-    for (let i = 0; i < firstDay; i++) {
-      days.push(null)
-    }
+  const days = useMemo(() => {
+    const result: { dateStr: string; day: number; entries: TaxiEntry[]; isToday: boolean; isPast: boolean; isFuture: boolean }[] = []
     for (let d = 1; d <= daysInMonth; d++) {
-      const fullDate = `${year}-${pad(month)}-${pad(d)}`
-      const isPaid = paidDates.includes(fullDate)
-      days.push({
-        date: d,
-        fullDate,
-        isCurrentMonth: true,
-        status: isPaid ? 'paid' : 'pending',
+      const dateStr = toDateStr(year, month, d)
+      const isFuture = dateStr > todayStr
+      const isPast = dateStr < todayStr
+      result.push({
+        dateStr,
+        day: d,
+        entries: calData?.calendar?.[dateStr] || [],
+        isToday: dateStr === todayStr,
+        isPast,
+        isFuture,
       })
     }
-    return days
-  }, [year, month, firstDay, daysInMonth, paidDates])
+    return result
+  }, [daysInMonth, year, month, calData, todayStr])
+
+  const selectedEntries = selectedDate ? calData?.calendar?.[selectedDate] || [] : []
+  const allTaxis = calData?.taxis || []
+
+  const totalTaxis = allTaxis.length
+  const daysWithPayments = Object.keys(calData?.calendar || {}).length
+
+  if (loading && !calData) {
+    return (
+      <View style={styles.loadingCentered}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+        <Text style={styles.loadingText}>Loading calendar...</Text>
+      </View>
+    )
+  }
 
   const goPrev = () => {
     const newMonth = month === 1 ? 12 : month - 1
@@ -126,9 +118,6 @@ export function PaymentCalendar({
     onMonthChange?.(newYear, newMonth)
   }
 
-  const paidCount = calendarDays.filter(d => d?.status === 'paid').length
-  const pendingCount = calendarDays.filter(d => d?.status === 'pending').length
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -139,97 +128,138 @@ export function PaymentCalendar({
         <TouchableOpacity onPress={goNext} style={styles.arrowBtn}>
           <MaterialCommunityIcons name="chevron-right" size={24} color="#374151" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={loadPaidDates} style={styles.refreshBtn}>
+        <TouchableOpacity onPress={loadCalendarData} style={styles.refreshBtn}>
           <MaterialCommunityIcons name="refresh" size={18} color="#6B7280" />
         </TouchableOpacity>
       </View>
 
-      {loading ? (
+      {loading && (
         <View style={styles.loadingRow}>
           <ActivityIndicator size="small" color="#3B82F6" />
-          <Text style={styles.loadingText}>Loading calendar...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
-      ) : null}
+      )}
 
       <View style={styles.dayRow}>
         {DAYS.map(d => <Text key={d} style={styles.dayHeader}>{d}</Text>)}
       </View>
 
       <View style={styles.daysGrid}>
-        {calendarDays.map((day, i) => {
-          if (!day) return <View key={`empty-${i}`} style={styles.dayCell} />
-          const isSelected = selected.includes(day.fullDate)
-          const colors = day.status ? statusColors[day.status] : null
+        {Array.from({ length: firstDay }).map((_, i) => (
+          <View key={`empty-${i}`} style={styles.dayCell} />
+        ))}
+        {days.map((day) => {
+          const isSelected = selectedDate === day.dateStr
+          const hasPayments = day.entries.length > 0
+          const isToday = day.isToday
+          const isFuture = day.isFuture
+          const isPast = day.isPast
+
+          let bgColor = '#fff'
+          if (isToday) bgColor = '#EFF6FF'
+          else if (hasPayments) bgColor = '#D1FAE5'
+          else if (isPast) bgColor = '#FEF2F2'
+
           return (
             <TouchableOpacity
-              key={day.fullDate}
+              key={day.dateStr}
               style={[
                 styles.dayCell,
-                day.status === 'paid' && styles.dayPaid,
-                day.status === 'pending' && styles.dayPending,
+                { backgroundColor: bgColor },
+                isToday && styles.dayToday,
                 isSelected && styles.daySelected,
               ]}
-              onPress={() => toggleDate(day.fullDate)}
+              onPress={() => setSelectedDate(isSelected ? null : day.dateStr)}
+              disabled={isFuture}
             >
               <Text style={[
                 styles.dayText,
-                day.status === 'paid' && styles.dayTextPaid,
-                day.status === 'pending' && styles.dayTextPending,
-                isSelected && styles.dayTextSelected,
+                isToday && styles.dayTextToday,
+                isFuture && styles.dayTextFuture,
+                hasPayments && styles.dayTextPaid,
               ]}>
-                {day.date}
+                {day.day}
               </Text>
-              <View style={[
-                styles.dayDot,
-                day.status === 'paid' && { backgroundColor: '#059669' },
-                day.status === 'pending' && { backgroundColor: '#DC2626' },
-              ]} />
+              {hasPayments && (
+                <View style={styles.dotsRow}>
+                  {day.entries.slice(0, 3).map((e) => (
+                    <View key={e.taxiId} style={[styles.dayDot, { backgroundColor: e.color }]} />
+                  ))}
+                  {day.entries.length > 3 && (
+                    <Text style={styles.dayDotMore}>+{day.entries.length - 3}</Text>
+                  )}
+                </View>
+              )}
             </TouchableOpacity>
           )
         })}
       </View>
 
+      {selectedDate && (
+        <View style={styles.selectedPanel}>
+          <Text style={styles.selectedDate}>{selectedDate}</Text>
+          {selectedEntries.length === 0 ? (
+            <Text style={styles.noEntries}>No payments recorded</Text>
+          ) : (
+            selectedEntries.map((e) => (
+              <View key={e.taxiId} style={styles.entryRow}>
+                <View style={[styles.entryDot, { backgroundColor: e.color }]} />
+                <Text style={styles.entryPlate}>{e.plateNumber}</Text>
+                {e.driverName ? <Text style={styles.entryDriver}>{e.driverName}</Text> : null}
+              </View>
+            ))
+          )}
+        </View>
+      )}
+
       <View style={styles.summaryRow}>
         <View style={styles.summaryItem}>
           <View style={[styles.summaryDot, { backgroundColor: '#059669' }]} />
-          <Text style={styles.summaryText}>Paid: {paidCount}</Text>
+          <Text style={styles.summaryText}>Paid: {daysWithPayments}</Text>
         </View>
         <View style={styles.summaryItem}>
           <View style={[styles.summaryDot, { backgroundColor: '#DC2626' }]} />
-          <Text style={styles.summaryText}>Pending: {pendingCount}</Text>
+          <Text style={styles.summaryText}>Pending: {daysInMonth - daysWithPayments}</Text>
         </View>
-        {selected.length > 0 && (
+        {totalTaxis > 0 && (
           <View style={styles.summaryItem}>
-            <MaterialCommunityIcons name="checkbox-marked" size={14} color="#3B82F6" />
-            <Text style={styles.summaryText}>Selected: {selected.length}</Text>
+            <MaterialCommunityIcons name="car" size={12} color="#6B7280" />
+            <Text style={styles.summaryText}>Taxis: {totalTaxis}</Text>
           </View>
         )}
       </View>
 
-      {showLegend && (
-        <View style={styles.legend}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#059669' }]} />
-            <Text style={styles.legendText}>Paid</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#DC2626' }]} />
-            <Text style={styles.legendText}>Pending</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#D97706' }]} />
-            <Text style={styles.legendText}>Partial</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#3B82F6' }]} />
-            <Text style={styles.legendText}>Leave</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#9CA3AF' }]} />
-            <Text style={styles.legendText}>Unallocated</Text>
-          </View>
-        </View>
+      {showLegend && allTaxis.length > 0 && (
+        <>
+          <TouchableOpacity
+            onPress={() => setShowTaxiLegend(!showTaxiLegend)}
+            style={styles.legendToggle}
+          >
+            <MaterialCommunityIcons name="information-outline" size={14} color="#3B82F6" />
+            <Text style={styles.legendToggleText}>
+              {showTaxiLegend ? 'Hide' : 'Show'} taxi colors ({allTaxis.length})
+            </Text>
+          </TouchableOpacity>
+
+          {showTaxiLegend && (
+            <View style={styles.legend}>
+              {allTaxis.map((t) => (
+                <View key={t.taxiId} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: t.color }]} />
+                  <Text style={styles.legendText}>{t.plateNumber}</Text>
+                  {t.driverName ? <Text style={styles.legendDriver}>({t.driverName})</Text> : null}
+                </View>
+              ))}
+            </View>
+          )}
+        </>
       )}
+
+      <View style={styles.legendSimple}>
+        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#059669' }]} /><Text style={styles.legendText}>Paid</Text></View>
+        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#DC2626' }]} /><Text style={styles.legendText}>Pending</Text></View>
+        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#3B82F6' }]} /><Text style={styles.legendText}>Today</Text></View>
+      </View>
     </View>
   )
 }
@@ -240,29 +270,42 @@ const styles = StyleSheet.create({
   arrowBtn: { padding: 4 },
   refreshBtn: { padding: 4, marginLeft: 4 },
   monthYear: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  loadingCentered: { padding: 40, alignItems: 'center' },
   loadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 6 },
   loadingText: { fontSize: 12, color: '#6B7280' },
   dayRow: { flexDirection: 'row', marginBottom: 8 },
   dayHeader: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '600', color: '#9CA3AF', textTransform: 'uppercase' },
   daysGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   dayCell: {
-    width: '14.28%', height: 44, justifyContent: 'center', alignItems: 'center',
-    borderRadius: 8,
+    width: '14.28%', height: 48, justifyContent: 'center', alignItems: 'center',
+    borderRadius: 8, position: 'relative',
   },
-  dayPaid: { backgroundColor: '#D1FAE5' },
-  dayPending: { backgroundColor: '#FEE2E2' },
+  dayToday: { borderWidth: 2, borderColor: '#3B82F6' },
   daySelected: { borderWidth: 2, borderColor: '#3B82F6', backgroundColor: '#EFF6FF' },
-  dayText: { fontSize: 13, color: '#374151' },
-  dayTextPaid: { color: '#065F46', fontWeight: '600' },
-  dayTextPending: { color: '#991B1B', fontWeight: '600' },
-  dayTextSelected: { color: '#1D4ED8', fontWeight: '700' },
-  dayDot: { width: 5, height: 5, borderRadius: 3, marginTop: 2 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
+  dayText: { fontSize: 13, color: '#374151', fontWeight: '500' },
+  dayTextToday: { color: '#1D4ED8', fontWeight: '800' },
+  dayTextFuture: { color: '#D1D5DB' },
+  dayTextPaid: { fontWeight: '700', color: '#065F46' },
+  dotsRow: { flexDirection: 'row', gap: 2, marginTop: 2, alignItems: 'center' },
+  dayDot: { width: 5, height: 5, borderRadius: 2.5 },
+  dayDotMore: { fontSize: 7, color: '#9CA3AF' },
+  selectedPanel: { marginTop: 12, padding: 12, backgroundColor: '#F9FAFB', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
+  selectedDate: { fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 8 },
+  noEntries: { fontSize: 12, color: '#9CA3AF' },
+  entryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  entryDot: { width: 10, height: 10, borderRadius: 5 },
+  entryPlate: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  entryDriver: { fontSize: 11, color: '#6B7280' },
+  summaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
   summaryItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   summaryDot: { width: 8, height: 8, borderRadius: 4 },
   summaryText: { fontSize: 12, color: '#6B7280', fontWeight: '500' },
-  legend: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, marginTop: 8, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 10 },
+  legendSimple: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, marginTop: 8, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 10 },
+  legendToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, paddingVertical: 4 },
+  legendToggleText: { fontSize: 12, color: '#3B82F6', fontWeight: '500' },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8, backgroundColor: '#F9FAFB', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { fontSize: 10, color: '#6B7280' },
+  legendText: { fontSize: 11, color: '#6B7280' },
+  legendDriver: { fontSize: 10, color: '#9CA3AF' },
 })

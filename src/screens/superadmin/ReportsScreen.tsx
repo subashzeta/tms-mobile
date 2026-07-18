@@ -12,6 +12,7 @@ import { dailyPayments, income, expenditure, dashboard, reports, taxis as taxisA
 import type { PendingByTaxiItem, CollectionByMethod, IncomeStatsData, Taxi } from '../../types'
 import { GradientHeader } from '../../components/GradientHeader'
 import { GradientCard } from '../../components/GradientCard'
+import { PaymentCalendar } from '../../components/PaymentCalendar'
 import { useToast } from '../../components/Toast'
 import { colors, gradients, spacing, borderRadius, shadow } from '../../theme'
 
@@ -46,10 +47,11 @@ async function generateReportPDF(title: string, headers: string[], rows: (string
   return uri
 }
 
-type ReportTab = 'overview' | 'pending' | 'income' | 'payments' | 'expenses'
+type ReportTab = 'calendar' | 'overview' | 'pending' | 'income' | 'payments' | 'expenses'
 type PendingView = 'monthly' | 'till-date'
 
 const tabs: { key: ReportTab; label: string; icon: string; gradient: readonly string[] }[] = [
+  { key: 'calendar', label: 'Calendar', icon: 'calendar-month', gradient: ['#3B82F6', '#60A5FA'] },
   { key: 'overview', label: 'Overview', icon: 'chart-bar', gradient: gradients.primary },
   { key: 'pending', label: 'Pending', icon: 'alert-circle', gradient: gradients.warning },
   { key: 'income', label: 'Income', icon: 'trending-up', gradient: gradients.success },
@@ -70,6 +72,8 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
   tab: ReportTab; dateParams: Record<string, string>; pendingView: PendingView; setPendingView: (v: PendingView) => void
 }) {
   const toast = useToast()
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth() + 1)
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const { data: incStats, loading: statsLoading } = useApi<IncomeStatsData>(() => income.getStats(dateParams), [dateParams.from, dateParams.to, dateParams.taxi])
   const { data: collections } = useApi<CollectionByMethod[]>(() => dashboard.getCollectionsByMethod(dateParams), [dateParams.from, dateParams.to, dateParams.taxi])
   const { data: pending, loading: pendLoading } = useApi<PendingByTaxiItem[]>(() => dailyPayments.getPendingByTaxi({ ...dateParams, calendar: pendingView === 'till-date' ? 'english' : 'nepali' }), [dateParams.from, dateParams.to, dateParams.taxi, pendingView])
@@ -86,16 +90,22 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
   const handleExportPDF = async (tabKey: string) => {
     setExporting(true)
     try {
+      const exportTypeMap: Record<string, string> = {
+        income: 'income', expenses: 'expenditure', payments: 'payments', pending: 'transactions',
+      }
+      const exportType = exportTypeMap[tabKey] || 'transactions'
+      const allData = await reports.getExportData({ ...dateParams, type: exportType })
+
       let title = '', headers: string[] = [], rows: (string | number)[][] = []
       if (tabKey === 'income') {
         title = 'Income Report'; headers = ['Plate', 'Driver', 'Amount', 'Date', 'Shift', 'Status']
-        rows = incList.map((i: any) => [i.taxi?.plateNumber || 'N/A', i.driver?.name || '', formatCurrency(i.amount), formatDate(i.date), i.shift || '-', i.verifiedAt ? 'Verified' : 'Pending'])
+        rows = (allData || []).map((i: any) => [i.taxi?.plateNumber || 'N/A', i.driver?.name || '', formatCurrency(i.amount), formatDate(i.date), i.shift || '-', i.verifiedAt ? 'Verified' : 'Pending'])
       } else if (tabKey === 'expenses') {
         title = 'Expenditure Report'; headers = ['Category', 'Plate', 'Amount', 'Date', 'Recorder']
-        rows = expList.map((e: any) => [e.category || '-', e.taxi?.plateNumber || 'N/A', formatCurrency(e.amount), formatDate(e.date), e.recordedBy?.name || ''])
+        rows = (allData || []).map((e: any) => [e.category || '-', e.taxi?.plateNumber || 'N/A', formatCurrency(e.amount), formatDate(e.date), e.recordedBy?.name || ''])
       } else if (tabKey === 'payments') {
         title = 'Payments Report'; headers = ['Plate', 'Driver', 'Due', 'Paid', 'Status', 'Method', 'Date']
-        rows = payList.map((p: any) => [p.taxi?.plateNumber || 'N/A', p.driver?.name || '', formatCurrency(p.amountDue), formatCurrency(p.amountPaid), p.status || '-', p.paymentMethod || '-', formatDate(p.date)])
+        rows = (allData || []).map((p: any) => [p.taxi?.plateNumber || 'N/A', p.driver?.name || '', formatCurrency(p.amountDue), formatCurrency(p.amountPaid), p.status || '-', p.paymentMethod || '-', formatDate(p.date)])
       } else if (tabKey === 'pending') {
         const items = pending ?? []
         title = 'Pending Report'; headers = ['Plate', 'Driver', 'Working', 'Paid', 'Leave', 'Pending', 'Collected', 'Outstanding']
@@ -109,6 +119,18 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
     } finally {
       setExporting(false)
     }
+  }
+
+  if (tab === 'calendar') {
+    return (
+      <View>
+        <PaymentCalendar
+          year={calYear}
+          month={calMonth}
+          onMonthChange={(y, m) => { setCalYear(y); setCalMonth(m) }}
+        />
+      </View>
+    )
   }
 
   if (tab === 'overview') {

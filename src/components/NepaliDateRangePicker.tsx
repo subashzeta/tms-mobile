@@ -90,10 +90,8 @@ export default function NepaliDateRangePicker({
   const [tempRange, setTempRange] = useState<DateRange>(value)
   const [showCalendar, setShowCalendar] = useState(false)
 
-  const yesterday = new NepaliDate()
-  yesterday.setDate(yesterday.getDate() - 1)
-  const yesterdayAD = yesterday.getAD()
-  const maxDateStr = maxDate || adStr(yesterdayAD.year, yesterdayAD.month, yesterdayAD.date)
+  const todayAD = today.getAD()
+  const maxDateStr = maxDate || adStr(todayAD.year, todayAD.month, todayAD.date)
 
   const paidSet = useMemo(() => new Set(paidDates), [paidDates])
   const markedSet = useMemo(() => new Set(markedDates), [markedDates])
