@@ -2,7 +2,7 @@
   "expo": {
     "name": "TMS",
     "slug": "tms-mobile",
-    "version": "1.1.4",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "com.tms.mobile",
-      "versionCode": 6,
+      "versionCode": 7,
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",

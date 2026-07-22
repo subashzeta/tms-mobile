@@ -30,6 +30,11 @@ export default function SuperAdminDailyPaymentsScreen() {
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [editItem, setEditItem] = useState<any>(null)
+  const [editAmountPaid, setEditAmountPaid] = useState('')
+  const [editStatus, setEditStatus] = useState('')
+  const [editMethod, setEditMethod] = useState('')
+  const [editNotes, setEditNotes] = useState('')
 
   const { data: taxisData, loading: tLoading, refresh: refreshTaxis } = useApi<any>(() => taxis.list({ isActive: true, limit: 200 }), [])
   const [searchText, setSearchText] = useState('')
@@ -57,6 +62,29 @@ export default function SuperAdminDailyPaymentsScreen() {
     catch (err: any) { alert(err?.response?.data?.message || err?.message || 'Failed') }
     finally { setActionLoading(null); setRejectId(null); setRejectReason('') }
   }, [rejectId, rejectReason])
+
+  const handleEditSave = useCallback(async () => {
+    if (!editItem) return
+    setActionLoading(editItem._id)
+    try {
+      await dailyPayments.update(editItem._id, {
+        amountPaid: editAmountPaid ? parseFloat(editAmountPaid) : undefined,
+        status: editStatus || undefined,
+        paymentMethod: editMethod || undefined,
+        notes: editNotes || undefined,
+      })
+      setEditItem(null); refreshPay()
+    } catch (err: any) { alert(err?.response?.data?.message || err?.message || 'Failed') }
+    finally { setActionLoading(null) }
+  }, [editItem, editAmountPaid, editStatus, editMethod, editNotes])
+
+  const handleDelete = useCallback(async (id: string, info: string) => {
+    if (!confirm(`Delete this payment record for ${info}?`)) return
+    setActionLoading(id)
+    try { await dailyPayments.delete(id); refreshPay() }
+    catch (err: any) { alert(err?.response?.data?.message || err?.message || 'Failed') }
+    finally { setActionLoading(null) }
+  }, [])
 
   const handleRecord = useCallback(async () => {
     if (!selectedTaxi || !payAmount) return
@@ -122,6 +150,10 @@ export default function SuperAdminDailyPaymentsScreen() {
             {pLoading && payList.length === 0 ? <View style={styles.loadingCentered}><ActivityIndicator size="large" color={colors.primary} /></View> : payList.length === 0 ? <Text style={styles.emptyText}>No payments found</Text> : payList.map((item, i) => (
             <GradientCard key={item._id ?? i} title={item.taxi?.plateNumber || 'N/A'} subtitle={item.driver?.name || ''} value={formatCurrency(item.amountPaid)} valueColor={colors.success}>
               <View style={styles.cardRow}><Text style={styles.cardStat}>Due: {formatCurrency(item.amountDue)}</Text><Text style={styles.cardStat}>Status: {item.status?.replace('_', ' ') || 'N/A'}</Text><Text style={styles.cardStat}>{formatDate(item.date)}</Text></View>
+              <View style={styles.cardActions}>
+                <GradientButton title="Edit" onPress={() => { setEditItem(item); setEditAmountPaid(String(item.amountPaid)); setEditStatus(item.status); setEditMethod(item.paymentMethod || ''); setEditNotes(item.notes || '') }} small />
+                <GradientButton title="Delete" onPress={() => handleDelete(item._id, `${item.driver?.name || ''} on ${formatDate(item.date)}`)} small gradient={[colors.danger, colors.danger]} />
+              </View>
             </GradientCard>
           ))}</>
         ) : (
@@ -155,6 +187,22 @@ export default function SuperAdminDailyPaymentsScreen() {
           <Text style={styles.label}>Reason</Text>
           <TextInput style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]} value={rejectReason} onChangeText={setRejectReason} placeholder="Enter reason..." multiline />
           <View style={styles.modalActions}><GradientButton title="Cancel" onPress={() => setShowReject(false)} outline /><GradientButton title="Reject" onPress={handleReject} gradient={[colors.danger, colors.danger]} /></View>
+        </View></View>
+      </Modal>
+
+      <Modal visible={!!editItem} transparent animationType="slide">
+        <View style={styles.modalOverlay}><View style={styles.modal}>
+          <Text style={styles.modalTitle}>Edit Payment — {editItem?.driver?.name}</Text>
+          {editItem && <Text style={{ fontSize: 12, color: colors.textTertiary, marginBottom: 12 }}>{editItem.taxi?.plateNumber} · {editItem.dateRangeEnd ? `${formatDate(editItem.date)} – ${formatDate(editItem.dateRangeEnd)}` : formatDate(editItem.date)}</Text>}
+          <Text style={styles.label}>Amount Paid</Text>
+          <TextInput style={styles.input} value={editAmountPaid} onChangeText={setEditAmountPaid} keyboardType="decimal-pad" />
+          <Text style={styles.label}>Status</Text>
+          <View style={styles.methodRow}>{['pending', 'paid', 'partial', 'overdue'].map(s => (<TouchableOpacity key={s} style={[styles.metBtn, editStatus === s && styles.metActive]} onPress={() => setEditStatus(s)}><Text style={[styles.metText, editStatus === s && styles.metTextActive]}>{s.replace('_', ' ')}</Text></TouchableOpacity>))}</View>
+          <Text style={styles.label}>Method</Text>
+          <View style={styles.methodRow}>{['cash', 'esewa', 'bank_transfer'].map(m => (<TouchableOpacity key={m} style={[styles.metBtn, editMethod === m && styles.metActive]} onPress={() => setEditMethod(m)}><Text style={[styles.metText, editMethod === m && styles.metTextActive]}>{m.replace('_', ' ')}</Text></TouchableOpacity>))}</View>
+          <Text style={styles.label}>Notes</Text>
+          <TextInput style={[styles.input, { minHeight: 60, textAlignVertical: 'top' }]} value={editNotes} onChangeText={setEditNotes} placeholder="Notes..." multiline />
+          <View style={styles.modalActions}><GradientButton title="Cancel" onPress={() => setEditItem(null)} outline /><GradientButton title={actionLoading === editItem?._id ? 'Saving...' : 'Save'} onPress={handleEditSave} loading={actionLoading === editItem?._id} /></View>
         </View></View>
       </Modal>
     </SafeAreaView>

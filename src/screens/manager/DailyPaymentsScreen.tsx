@@ -249,7 +249,7 @@ export default function DailyPaymentsScreen() {
                           </View>
                           {item.paymentMethod ? (
                             <View style={styles.payRowMetaItem}>
-                              <MaterialCommunityIcons name={mi[item.paymentMethod] || 'cash'} size={11} color={colors.textTertiary} />
+                              <MaterialCommunityIcons name={mi[item.paymentMethod] as any || 'cash'} size={11} color={colors.textTertiary} />
                               <Text style={styles.payRowMetaT}>{item.paymentMethod.replace('_', ' ')}</Text>
                             </View>
                           ) : null}

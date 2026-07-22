@@ -47,7 +47,7 @@ async function generateReportPDF(title: string, headers: string[], rows: (string
   return uri
 }
 
-type ReportTab = 'calendar' | 'overview' | 'pending' | 'income' | 'payments' | 'expenses'
+type ReportTab = 'calendar' | 'overview' | 'pending' | 'income' | 'payments' | 'expenses' | 'taxi-report'
 type PendingView = 'monthly' | 'till-date'
 
 const tabs: { key: ReportTab; label: string; icon: string; gradient: readonly string[] }[] = [
@@ -57,6 +57,7 @@ const tabs: { key: ReportTab; label: string; icon: string; gradient: readonly st
   { key: 'income', label: 'Income', icon: 'trending-up', gradient: gradients.success },
   { key: 'payments', label: 'Payments', icon: 'cash-multiple', gradient: gradients.secondary },
   { key: 'expenses', label: 'Expenses', icon: 'cash-remove', gradient: gradients.danger },
+  { key: 'taxi-report', label: 'Taxi Report', icon: 'file-document', gradient: ['#8B5CF6', '#A78BFA'] },
 ]
 
 function ExportBtn({ onPress, disabled }: { onPress: () => void; disabled?: boolean }) {
@@ -247,6 +248,245 @@ function TabContent({ tab, dateParams, pendingView, setPendingView }: {
     )
   }
 
+  if (tab === 'taxi-report') {
+    const { data: taxiReportData, loading: trLoading } = useApi<any[]>(() => reports.getTaxiReport(dateParams), [dateParams.from, dateParams.to, dateParams.taxi])
+    const items: any[] = Array.isArray(taxiReportData) ? taxiReportData : []
+
+    const handleExportTaxiReportPDF = async () => {
+      if (items.length === 0) { toast.info('No data to export'); return }
+      setExporting(true)
+      try {
+        const BS_MONTHS = ['Baisakh','Jestha','Asar','Shrawan','Bhadra','Aswin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra']
+        const EN_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        const SU_MO = ['Su','Mo','Tu','We','Th','Fr','Sa']
+
+        let tableHtml = ''
+        for (const item of items) {
+          const t = item.taxi || {}
+          const s = item.summary || {}
+          const dps: any[] = item.dailyPayments || []
+          const leaves: any[] = item.leaves || []
+          const eps: any[] = item.extraPayments || []
+          const exps: any[] = item.expenditures || []
+          const incs: any[] = item.incomes || []
+          const drv = t.assignedDriver || {}
+
+          // Build paid/leave date sets
+          const paidSet = new Set<string>()
+          dps.forEach((d: any) => {
+            const start = new Date(d.date)
+            const end = d.dateRangeEnd ? new Date(d.dateRangeEnd) : new Date(start)
+            const cur = new Date(start)
+            while (cur <= end) {
+              paidSet.add(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`)
+              cur.setDate(cur.getDate()+1)
+            }
+          })
+          const leaveSet = new Set<string>()
+          leaves.forEach((l: any) => {
+            const d = new Date(l.date)
+            leaveSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)
+          })
+
+          // Calendar HTML
+          let calHtml = ''
+          const from = dateParams.from || (dps[0]?.date || new Date().toISOString().slice(0,10))
+          const to = dateParams.to || new Date().toISOString().slice(0,10)
+          const startD = new Date(from)
+          const endD = new Date(to)
+          const months: { y: number; m: number; isNepali: boolean }[] = []
+          let cy = startD.getFullYear(), cm = startD.getMonth() + 1
+          while (cy < endD.getFullYear() || (cy === endD.getFullYear() && cm <= endD.getMonth() + 1)) {
+            months.push({ y: cy, m: cm, isNepali: false })
+            cm++; if (cm > 12) { cm = 1; cy++ }
+          }
+          for (const { y, m } of months) {
+            const daysInM = new Date(y, m, 0).getDate()
+            const firstDay = new Date(y, m - 1, 1).getDay()
+            calHtml += `<div style="margin-bottom:14px;max-width:300px"><p style="font-size:10px;font-weight:700;text-align:center;margin-bottom:4px;color:#1e40af">${EN_MONTHS[m-1]} ${y}</p>`
+            calHtml += '<table style="width:100%;border-collapse:collapse;font-size:9px"><thead><tr>'
+            SU_MO.forEach(d => { calHtml += `<th style="padding:4px;text-align:center;color:#64748b;font-weight:600;border:1px solid #e2e8f0;background:#f1f5f9">${d}</th>` })
+            calHtml += '</tr></thead><tbody><tr>'
+            for (let i = 0; i < firstDay; i++) calHtml += '<td style="border:1px solid #e2e8f0;padding:4px;background:#fff"></td>'
+            for (let d = 1; d <= daysInM; d++) {
+              if ((firstDay + d - 1) % 7 === 0 && d > 1) calHtml += '</tr><tr>'
+              const ds = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+              const isPaid = paidSet.has(ds), isLeave = leaveSet.has(ds)
+              const bg = isPaid ? '#dcfce7' : isLeave ? '#fee2e2' : '#fff'
+              const clr = isPaid ? '#15803d' : isLeave ? '#dc2626' : '#94a3b8'
+              calHtml += `<td style="border:1px solid #e2e8f0;padding:4px;text-align:center;background:${bg};color:${clr};font-weight:${isPaid||isLeave?'600':'400'}">${d}</td>`
+            }
+            const rem = (firstDay + daysInM) % 7
+            if (rem > 0) for (let i = rem; i < 7; i++) calHtml += '<td style="border:1px solid #e2e8f0;padding:4px;background:#fff"></td>'
+            calHtml += '</tr></tbody></table></div>'
+          }
+
+          // Table helpers
+          const fmtDate = (d: any) => { if (!d) return '—'; return new Date(d).toLocaleDateString('en-IN') }
+          const fmtAmt = (n: any) => `₹ ${(n||0).toLocaleString('en-IN')}`
+
+          tableHtml += `<div style="page-break-before:always;margin-top:20px">
+            <h2 style="font-size:15px;color:#1e40af;border-bottom:2px solid #1e40af;padding-bottom:4px;margin-bottom:6px">${t.plateNumber || ''} — ${t.model || ''}</h2>
+            <p style="font-size:10px;color:#64748b;margin-bottom:10px">Driver: <strong>${drv.name || 'Unassigned'}</strong> ${drv.phone ? `· Phone: ${drv.phone}` : ''}</p>
+            <div style="display:flex;gap:12px;margin-bottom:14px">
+              <div style="flex:1;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;text-align:center"><div style="font-size:9px;color:#64748b;text-transform:uppercase">Income</div><div style="font-size:14px;font-weight:700;color:#16a34a">${fmtAmt(s.totalIncome)}</div></div>
+              <div style="flex:1;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;text-align:center"><div style="font-size:9px;color:#64748b;text-transform:uppercase">Expenditure</div><div style="font-size:14px;font-weight:700;color:#dc2626">${fmtAmt(s.totalExpenditure)}</div></div>
+              <div style="flex:1;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;text-align:center"><div style="font-size:9px;color:#64748b;text-transform:uppercase">Extra</div><div style="font-size:14px;font-weight:700;color:#d97706">${fmtAmt(s.totalExtraPayments)}</div></div>
+              <div style="flex:1;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;text-align:center"><div style="font-size:9px;color:#64748b;text-transform:uppercase">Due</div><div style="font-size:14px;font-weight:700">${fmtAmt(s.totalDue)}</div></div>
+              <div style="flex:1;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;text-align:center"><div style="font-size:9px;color:#64748b;text-transform:uppercase">Paid</div><div style="font-size:14px;font-weight:700;color:#16a34a">${fmtAmt(s.totalPaid)}</div></div>
+              <div style="flex:1;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;text-align:center"><div style="font-size:9px;color:#64748b;text-transform:uppercase">Leaves</div><div style="font-size:14px;font-weight:700">${s.leaveDays||0}</div></div>
+            </div>`
+          if (calHtml) tableHtml += `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:600;color:#334155;margin-bottom:6px;border-left:3px solid #3b82f6;padding-left:8px">Payment Calendar</div><div style="display:flex;flex-wrap:wrap;gap:14px">${calHtml}</div><div style="font-size:9px;color:#94a3b8;margin-top:4px"><span style="display:inline-block;width:10px;height:10px;background:#dcfce7;border:1px solid #86efac;border-radius:2px;vertical-align:middle"></span> Paid <span style="margin-left:6px;display:inline-block;width:10px;height:10px;background:#fee2e2;border:1px solid #fca5a5;border-radius:2px;vertical-align:middle"></span> Leave</div></div>`
+          if (dps.length) {
+            tableHtml += `<div style="font-size:11px;font-weight:600;color:#334155;margin-bottom:4px;border-left:3px solid #3b82f6;padding-left:8px">Daily Payments (${dps.length})</div><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:12px"><thead><tr><th style="background:#1e3a5f;color:#fff;padding:6px 8px;text-align:left;border:1px solid #1e3a5f">Date Range</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;text-align:left;border:1px solid #1e3a5f">Driver</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;text-align:right;border:1px solid #1e3a5f">Due</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;text-align:right;border:1px solid #1e3a5f">Paid</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Status</th></tr></thead><tbody>`
+            dps.forEach((d: any) => { tableHtml += `<tr><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${d.dateRangeEnd ? `${fmtDate(d.date)} – ${fmtDate(d.dateRangeEnd)}` : fmtDate(d.date)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${d.driver?.name||''}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:right">${fmtAmt(d.amountDue)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;color:#16a34a">${fmtAmt(d.amountPaid)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${d.status||''}</td></tr>` })
+            tableHtml += '</tbody></table>'
+          }
+          if (leaves.length) {
+            tableHtml += `<div style="font-size:11px;font-weight:600;color:#334155;margin-bottom:4px;border-left:3px solid #3b82f6;padding-left:8px">Leaves (${leaves.length})</div><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:12px"><thead><tr><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Date</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Reason</th></tr></thead><tbody>`
+            leaves.forEach((l: any) => { tableHtml += `<tr><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${fmtDate(l.date)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${l.reason||'—'}</td></tr>` })
+            tableHtml += '</tbody></table>'
+          }
+          if (eps.length) {
+            tableHtml += `<div style="font-size:11px;font-weight:600;color:#334155;margin-bottom:4px;border-left:3px solid #3b82f6;padding-left:8px">Extra Payments (${eps.length})</div><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:12px"><thead><tr><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Date</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Driver</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;text-align:right;border:1px solid #1e3a5f">Amount</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Status</th></tr></thead><tbody>`
+            eps.forEach((e: any) => { tableHtml += `<tr><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${fmtDate(e.paymentDate||e.createdAt)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${e.driver?.name||''}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600">${fmtAmt(e.amount)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${e.status||'pending'}</td></tr>` })
+            tableHtml += '</tbody></table>'
+          }
+          if (exps.length) {
+            tableHtml += `<div style="font-size:11px;font-weight:600;color:#334155;margin-bottom:4px;border-left:3px solid #3b82f6;padding-left:8px">Expenditures (${exps.length})</div><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:12px"><thead><tr><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Date</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Category</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;text-align:right;border:1px solid #1e3a5f">Amount</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Description</th></tr></thead><tbody>`
+            exps.forEach((e: any) => { tableHtml += `<tr><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${fmtDate(e.date)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${e.category||''}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;color:#dc2626">${fmtAmt(e.amount)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${e.description||''}</td></tr>` })
+            tableHtml += '</tbody></table>'
+          }
+          if (incs.length) {
+            tableHtml += `<div style="font-size:11px;font-weight:600;color:#334155;margin-bottom:4px;border-left:3px solid #3b82f6;padding-left:8px">Income (${incs.length})</div><table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:12px"><thead><tr><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Date</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;text-align:right;border:1px solid #1e3a5f">Amount</th><th style="background:#1e3a5f;color:#fff;padding:6px 8px;border:1px solid #1e3a5f">Status</th></tr></thead><tbody>`
+            incs.forEach((i: any) => { tableHtml += `<tr><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${fmtDate(i.date)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;color:#16a34a">${fmtAmt(i.amount)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${i.verifiedAt ? 'Verified' : 'Pending'}</td></tr>` })
+            tableHtml += '</tbody></table>'
+          }
+          tableHtml += '</div>'
+        }
+
+        const filterText = dateParams.from && dateParams.to ? `${dateParams.from} to ${dateParams.to}` : 'All dates'
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+          @page{size:landscape;margin:12mm}
+          body{font-family:sans-serif;padding:20px;color:#1e293b;font-size:11px;line-height:1.5}
+          h1{font-size:20px;margin:0 0 4px;color:#0f172a;font-weight:700}
+          .meta{font-size:10px;color:#94a3b8;margin-bottom:16px}
+          .footer{margin-top:20px;font-size:9px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:10px}
+        </style></head><body>
+          <h1>Taxi Report</h1>
+          <div class="meta">Period: ${filterText} · Generated: ${new Date().toLocaleString('en-IN')} · ${items.length} taxi(es)</div>
+          ${tableHtml}
+          <div class="footer">TMS Nepal — Generated by TMS Mobile</div>
+        </body></html>`
+        const { uri } = await Print.printToFileAsync({ html, base64: false })
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share Taxi Report', UTI: 'com.adobe.pdf' })
+        }
+        toast.success('Taxi Report exported', 'PDF ready to share')
+      } catch (err: any) {
+        toast.error('Export failed', err?.message || 'Could not generate PDF')
+      } finally {
+        setExporting(false)
+      }
+    }
+
+    return (
+      <View>
+        <View style={styles.tabHeader}>
+          <View style={styles.summaryInline}>
+            <Text style={styles.summaryInlineText}>{items.length} taxi(es)</Text>
+          </View>
+          <ExportBtn onPress={handleExportTaxiReportPDF} disabled={exporting} />
+        </View>
+        {trLoading ? <View style={styles.loadingCentered}><ActivityIndicator size="large" color={colors.primary} /></View> :
+          items.length === 0 ? <Text style={styles.emptyText}>No taxi report data</Text> :
+            items.map((item: any, idx: number) => {
+              const t = item.taxi || {}
+              const s = item.summary || {}
+              const drv = t.assignedDriver || {}
+              const dps: any[] = item.dailyPayments || []
+              const leaves: any[] = item.leaves || []
+              const eps: any[] = item.extraPayments || []
+              const exps: any[] = item.expenditures || []
+              const incs: any[] = item.incomes || []
+              return (
+                <View key={t._id ?? idx} style={styles.trSection}>
+                  <View style={styles.trHeader}>
+                    <MaterialCommunityIcons name="car" size={16} color={colors.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.trTitle}>{t.plateNumber} — {t.model || ''}</Text>
+                      <Text style={styles.trSub}>Driver: {drv.name || 'Unassigned'} {drv.phone ? `· ${drv.phone}` : ''}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.trSummaryRow}>
+                    <View style={[styles.trSummaryItem, { backgroundColor: '#f0fdf4' }]}><Text style={styles.trSummaryLabel}>Income</Text><Text style={[styles.trSummaryVal, { color: colors.success }]}>{formatCurrency(s.totalIncome)}</Text></View>
+                    <View style={[styles.trSummaryItem, { backgroundColor: '#fef2f2' }]}><Text style={styles.trSummaryLabel}>Expense</Text><Text style={[styles.trSummaryVal, { color: colors.danger }]}>{formatCurrency(s.totalExpenditure)}</Text></View>
+                    <View style={[styles.trSummaryItem, { backgroundColor: '#f8fafc' }]}><Text style={styles.trSummaryLabel}>Paid</Text><Text style={[styles.trSummaryVal, { color: colors.success }]}>{formatCurrency(s.totalPaid)}</Text></View>
+                    <View style={[styles.trSummaryItem, { backgroundColor: '#f8fafc' }]}><Text style={styles.trSummaryLabel}>Due</Text><Text style={styles.trSummaryVal}>{formatCurrency(s.totalDue)}</Text></View>
+                  </View>
+                  {dps.length > 0 && (
+                    <View style={styles.trSubSection}>
+                      <Text style={styles.trSubTitle}>Daily Payments ({dps.length})</Text>
+                      {dps.map((d: any, j: number) => (
+                        <View key={d._id ?? j} style={styles.trRow}>
+                          <Text style={styles.trRowText}>{d.dateRangeEnd ? `${formatDate(d.date)} – ${formatDate(d.dateRangeEnd)}` : formatDate(d.date)}</Text>
+                          <Text style={[styles.trRowText, { color: colors.success, fontWeight: '600' }]}>{formatCurrency(d.amountPaid)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {leaves.length > 0 && (
+                    <View style={styles.trSubSection}>
+                      <Text style={styles.trSubTitle}>Leaves ({leaves.length})</Text>
+                      {leaves.map((l: any, j: number) => (
+                        <View key={l._id ?? j} style={styles.trRow}>
+                          <Text style={styles.trRowText}>{formatDate(l.date)}</Text>
+                          <Text style={styles.trRowText}>{l.reason || '—'}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {eps.length > 0 && (
+                    <View style={styles.trSubSection}>
+                      <Text style={styles.trSubTitle}>Extra Payments ({eps.length})</Text>
+                      {eps.map((e: any, j: number) => (
+                        <View key={e._id ?? j} style={styles.trRow}>
+                          <Text style={styles.trRowText}>{formatDate(e.paymentDate || e.createdAt)}</Text>
+                          <Text style={[styles.trRowText, { fontWeight: '600' }]}>{formatCurrency(e.amount)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {exps.length > 0 && (
+                    <View style={styles.trSubSection}>
+                      <Text style={styles.trSubTitle}>Expenditures ({exps.length})</Text>
+                      {exps.map((e: any, j: number) => (
+                        <View key={e._id ?? j} style={styles.trRow}>
+                          <Text style={styles.trRowText}>{formatDate(e.date)} — {e.category || ''}</Text>
+                          <Text style={[styles.trRowText, { color: colors.danger, fontWeight: '600' }]}>{formatCurrency(e.amount)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {incs.length > 0 && (
+                    <View style={styles.trSubSection}>
+                      <Text style={styles.trSubTitle}>Income ({incs.length})</Text>
+                      {incs.map((i: any, j: number) => (
+                        <View key={i._id ?? j} style={styles.trRow}>
+                          <Text style={styles.trRowText}>{formatDate(i.date)}</Text>
+                          <Text style={[styles.trRowText, { color: colors.success, fontWeight: '600' }]}>{formatCurrency(i.amount)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )
+            })
+        }
+      </View>
+    )
+  }
+
   return null
 }
 
@@ -430,4 +670,16 @@ const styles = StyleSheet.create({
   taxiOptionText: { fontSize: 14, fontWeight: '500', color: colors.text, flex: 1 },
   taxiOptionTextActive: { color: colors.textInverse },
   taxiOptionSub: { fontSize: 11, color: colors.textTertiary, marginTop: 1 },
+  trSection: { backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.borderLight, ...shadow.sm },
+  trHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm, paddingBottom: spacing.sm, borderBottomWidth: 2, borderBottomColor: colors.primary },
+  trTitle: { fontSize: 14, fontWeight: '700', color: colors.text },
+  trSub: { fontSize: 11, color: colors.textTertiary },
+  trSummaryRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  trSummaryItem: { flex: 1, padding: spacing.sm, borderRadius: borderRadius.sm, alignItems: 'center' },
+  trSummaryLabel: { fontSize: 9, color: colors.textTertiary, textTransform: 'uppercase', fontWeight: '600' },
+  trSummaryVal: { fontSize: 13, fontWeight: '700', color: colors.text, marginTop: 2 },
+  trSubSection: { marginBottom: spacing.sm },
+  trSubTitle: { fontSize: 12, fontWeight: '600', color: colors.primary, marginBottom: spacing.xs },
+  trRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
+  trRowText: { fontSize: 11, color: colors.textSecondary },
 })

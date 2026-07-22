@@ -238,4 +238,6 @@ export const reports = {
     client.get('/reports/pending-upto-date', { params }).then(r => r.data.data),
   getExportData: (params?: any) =>
     client.get('/reports/export-data', { params }).then(r => r.data.data),
+  getTaxiReport: (params?: any) =>
+    client.get('/reports/taxi-report', { params }).then(r => r.data.data),
 }
