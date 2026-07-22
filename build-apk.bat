@@ -4,7 +4,7 @@ SET ANDROID_HOME=C:\Users\momen\AppData\Local\Android\Sdk
 SET PATH=%JAVA_HOME%\bin;%ANDROID_HOME%\platform-tools;%ANDROID_HOME%\build-tools\36.0.0;%PATH%
 
 echo ===== TMS Mobile APK Builder =====
-cd /d D:\tms\tms-mobile
+cd /d D:\subashzetaWork\tms\tms-mobile
 
 echo [1/3] Running Expo prebuild...
 call npx expo prebuild --clean 2>nul
