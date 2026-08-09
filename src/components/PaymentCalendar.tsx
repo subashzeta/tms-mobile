@@ -14,6 +14,8 @@ interface TaxiEntry {
 
 interface CalendarData {
   calendar: Record<string, TaxiEntry[]>
+  leaves?: Record<string, TaxiEntry[]>
+  pending?: Record<string, TaxiEntry[]>
   taxis: (TaxiEntry & { driverName: string })[]
 }
 
@@ -92,6 +94,8 @@ export function PaymentCalendar({
   }, [daysInMonth, year, month, calData, todayStr])
 
   const selectedEntries = selectedDate ? calData?.calendar?.[selectedDate] || [] : []
+  const selectedLeaves = selectedDate ? calData?.leaves?.[selectedDate] || [] : []
+  const selectedPending = selectedDate ? calData?.pending?.[selectedDate] || [] : []
   const allTaxis = calData?.taxis || []
 
   const totalTaxis = allTaxis.length
@@ -150,15 +154,24 @@ export function PaymentCalendar({
         ))}
         {days.map((day) => {
           const isSelected = selectedDate === day.dateStr
-          const hasPayments = day.entries.length > 0
+          const paidEntries = calData?.calendar?.[day.dateStr] || []
+          const leaveEntries = calData?.leaves?.[day.dateStr] || []
+          const pendingEntries = calData?.pending?.[day.dateStr] || []
+          const hasPayments = paidEntries.length > 0
+          const hasLeave = leaveEntries.length > 0
+          const hasPending = pendingEntries.length > 0
           const isToday = day.isToday
           const isFuture = day.isFuture
           const isPast = day.isPast
 
           let bgColor = '#fff'
           if (isToday) bgColor = '#EFF6FF'
+          else if (hasLeave) bgColor = '#FEE2E2'
+          else if (hasPending) bgColor = '#FEF3C7'
           else if (hasPayments) bgColor = '#D1FAE5'
           else if (isPast) bgColor = '#FEF2F2'
+
+          const dotColor = hasLeave ? '#DC2626' : hasPending ? '#D97706' : undefined
 
           return (
             <TouchableOpacity
@@ -176,17 +189,20 @@ export function PaymentCalendar({
                 styles.dayText,
                 isToday && styles.dayTextToday,
                 isFuture && styles.dayTextFuture,
-                hasPayments && styles.dayTextPaid,
+                (hasPayments || hasLeave || hasPending) && styles.dayTextPaid,
+                hasLeave && styles.dayTextLeave,
               ]}>
                 {day.day}
               </Text>
-              {hasPayments && (
+              {(hasPayments || hasLeave || hasPending) && (
                 <View style={styles.dotsRow}>
-                  {day.entries.slice(0, 3).map((e) => (
+                  {paidEntries.slice(0, 2).map((e) => (
                     <View key={e.taxiId} style={[styles.dayDot, { backgroundColor: e.color }]} />
                   ))}
-                  {day.entries.length > 3 && (
-                    <Text style={styles.dayDotMore}>+{day.entries.length - 3}</Text>
+                  {hasLeave && <View style={[styles.dayDot, { backgroundColor: '#DC2626' }]} />}
+                  {hasPending && <View style={[styles.dayDot, { backgroundColor: '#D97706' }]} />}
+                  {(paidEntries.length + (hasLeave ? 1 : 0) + (hasPending ? 1 : 0)) > 3 && (
+                    <Text style={styles.dayDotMore}>+</Text>
                   )}
                 </View>
               )}
@@ -198,16 +214,32 @@ export function PaymentCalendar({
       {selectedDate && (
         <View style={styles.selectedPanel}>
           <Text style={styles.selectedDate}>{selectedDate}</Text>
-          {selectedEntries.length === 0 ? (
-            <Text style={styles.noEntries}>No payments recorded</Text>
+          {selectedEntries.length === 0 && selectedLeaves.length === 0 && selectedPending.length === 0 ? (
+            <Text style={styles.noEntries}>No records for this date</Text>
           ) : (
-            selectedEntries.map((e) => (
-              <View key={e.taxiId} style={styles.entryRow}>
-                <View style={[styles.entryDot, { backgroundColor: e.color }]} />
-                <Text style={styles.entryPlate}>{e.plateNumber}</Text>
-                {e.driverName ? <Text style={styles.entryDriver}>{e.driverName}</Text> : null}
-              </View>
-            ))
+            <>
+              {selectedEntries.map((e) => (
+                <View key={e.taxiId} style={styles.entryRow}>
+                  <View style={[styles.entryDot, { backgroundColor: e.color }]} />
+                  <Text style={styles.entryPlate}>{e.plateNumber}</Text>
+                  <Text style={styles.entryTag}>paid</Text>
+                </View>
+              ))}
+              {selectedLeaves.map((e) => (
+                <View key={`l-${e.taxiId}`} style={styles.entryRow}>
+                  <View style={[styles.entryDot, { backgroundColor: '#DC2626' }]} />
+                  <Text style={styles.entryPlate}>{e.plateNumber}</Text>
+                  <Text style={styles.entryTagLeave}>leave</Text>
+                </View>
+              ))}
+              {selectedPending.map((e) => (
+                <View key={`pd-${e.taxiId}`} style={styles.entryRow}>
+                  <View style={[styles.entryDot, { backgroundColor: '#D97706' }]} />
+                  <Text style={styles.entryPlate}>{e.plateNumber}</Text>
+                  <Text style={styles.entryTagPending}>pending</Text>
+                </View>
+              ))}
+            </>
           )}
         </View>
       )}
@@ -219,7 +251,11 @@ export function PaymentCalendar({
         </View>
         <View style={styles.summaryItem}>
           <View style={[styles.summaryDot, { backgroundColor: '#DC2626' }]} />
-          <Text style={styles.summaryText}>Pending: {daysInMonth - daysWithPayments}</Text>
+          <Text style={styles.summaryText}>Leave: {Object.keys(calData?.leaves || {}).length}</Text>
+        </View>
+        <View style={styles.summaryItem}>
+          <View style={[styles.summaryDot, { backgroundColor: '#D97706' }]} />
+          <Text style={styles.summaryText}>Pending: {Object.keys(calData?.pending || {}).length}</Text>
         </View>
         {totalTaxis > 0 && (
           <View style={styles.summaryItem}>
@@ -257,7 +293,8 @@ export function PaymentCalendar({
 
       <View style={styles.legendSimple}>
         <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#059669' }]} /><Text style={styles.legendText}>Paid</Text></View>
-        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#DC2626' }]} /><Text style={styles.legendText}>Pending</Text></View>
+        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#DC2626' }]} /><Text style={styles.legendText}>Leave</Text></View>
+        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#D97706' }]} /><Text style={styles.legendText}>Pending</Text></View>
         <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#3B82F6' }]} /><Text style={styles.legendText}>Today</Text></View>
       </View>
     </View>
@@ -286,6 +323,10 @@ const styles = StyleSheet.create({
   dayTextToday: { color: '#1D4ED8', fontWeight: '800' },
   dayTextFuture: { color: '#D1D5DB' },
   dayTextPaid: { fontWeight: '700', color: '#065F46' },
+  dayTextLeave: { color: '#DC2626' },
+  entryTag: { fontSize: 10, color: '#059669', marginLeft: 'auto' },
+  entryTagLeave: { fontSize: 10, color: '#DC2626', marginLeft: 'auto' },
+  entryTagPending: { fontSize: 10, color: '#D97706', marginLeft: 'auto' },
   dotsRow: { flexDirection: 'row', gap: 2, marginTop: 2, alignItems: 'center' },
   dayDot: { width: 5, height: 5, borderRadius: 2.5 },
   dayDotMore: { fontSize: 7, color: '#9CA3AF' },
