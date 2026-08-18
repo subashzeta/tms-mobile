@@ -90,6 +90,11 @@ export default function NepaliDateRangePicker({
   const [tempRange, setTempRange] = useState<DateRange>(value)
   const [showCalendar, setShowCalendar] = useState(false)
 
+  useEffect(() => {
+    setTempRange(value)
+    setSelectPhase(!value.from ? 'from' : !value.to ? 'to' : 'from')
+  }, [value.from, value.to])
+
   const todayAD = today.getAD()
   const maxDateStr = maxDate || adStr(todayAD.year, todayAD.month, todayAD.date)
 
@@ -305,7 +310,15 @@ export default function NepaliDateRangePicker({
             <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: colors.textTertiary }]} /><Text style={styles.legendText}>Unalloc</Text></View>
           </View>
           <View style={styles.footerActions}>
-            <TouchableOpacity style={styles.doneBtn} onPress={() => setShowCalendar(false)}>
+            <TouchableOpacity style={styles.doneBtn} onPress={() => {
+              if (tempRange.from && !tempRange.to) {
+                const singleDay = { from: tempRange.from, to: tempRange.from }
+                setTempRange(singleDay)
+                setSelectPhase('from')
+                onChange(singleDay)
+              }
+              setShowCalendar(false)
+            }}>
               <Text style={styles.doneBtnText}>Done</Text>
             </TouchableOpacity>
           </View>

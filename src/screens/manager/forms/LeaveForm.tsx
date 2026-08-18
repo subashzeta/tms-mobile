@@ -21,6 +21,7 @@ export default function LeaveForm() {
   const [loading, setLoading] = useState(false)
   const [loadingT, setLoadingT] = useState(true)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [markedDates, setMarkedDates] = useState<string[]>([])
 
   useEffect(() => {
     taxis.list().then(r => {
@@ -34,6 +35,14 @@ export default function LeaveForm() {
       }
     }).catch(() => Alert.alert('Error', 'Failed to load taxis')).finally(() => setLoadingT(false))
   }, [])
+
+  useEffect(() => {
+    if (!selTaxi) { setMarkedDates([]); return }
+    leaves.list({ taxi: selTaxi }).then((r: any) => {
+      const list = r?.data ?? (Array.isArray(r) ? r : [])
+      setMarkedDates(list.map((l: any) => l.date.split('T')[0]))
+    }).catch(() => {})
+  }, [selTaxi])
 
   const selectedTaxiObj = taxisList.find(t => t._id === selTaxi)
   const driverName = selectedTaxiObj?.assignedDriver?.name || ''
@@ -106,7 +115,7 @@ export default function LeaveForm() {
           )}
           {errors.driver ? <Text style={styles.err}>{errors.driver}</Text> : null}
 
-          <NepaliDateRangePicker value={dr} onChange={setDr} showQuickSelect label="Leave dates *" />
+          <NepaliDateRangePicker value={dr} onChange={setDr} showQuickSelect label="Leave dates *" markedDates={markedDates} />
           {errors.dr ? <Text style={styles.err}>{errors.dr}</Text> : null}
           {days > 0 && <Text style={styles.dayC}>{days} day{days > 1 ? 's' : ''}</Text>}
 

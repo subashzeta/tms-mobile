@@ -215,13 +215,18 @@ export function LeaveModal({ visible, taxiId, onClose, onDone }: { visible: bool
   const [reason, setReason] = useState('')
   const [loading, setLoading] = useState(false)
   const [taxiObj, setTaxiObj] = useState<Taxi | null>(null)
+  const [markedDates, setMarkedDates] = useState<string[]>([])
 
   useEffect(() => {
     if (visible && taxiId) {
-      setDr({ from: '', to: '' }); setReason('')
+      setDr({ from: '', to: '' }); setReason(''); setMarkedDates([])
       taxis.list().then((r: any) => {
         const list: Taxi[] = r?.data ?? (Array.isArray(r) ? r : [])
         setTaxiObj(list.find((t: Taxi) => t._id === taxiId) || null)
+      }).catch(() => {})
+      leaves.list({ taxi: taxiId }).then((r: any) => {
+        const list = r?.data ?? (Array.isArray(r) ? r : [])
+        setMarkedDates(list.map((l: any) => l.date.split('T')[0]))
       }).catch(() => {})
     }
   }, [visible, taxiId])
@@ -277,7 +282,7 @@ export function LeaveModal({ visible, taxiId, onClose, onDone }: { visible: bool
               </View>
             )}
 
-            <NepaliDateRangePicker value={dr} onChange={setDr} showQuickSelect label="Leave dates *" />
+            <NepaliDateRangePicker value={dr} onChange={setDr} showQuickSelect label="Leave dates *" markedDates={markedDates} />
             {days > 0 && <Text style={{ fontSize: 12, color: colors.pink, fontWeight: '600', marginTop: spacing.xs }}>{days} day{days > 1 ? 's' : ''}</Text>}
 
             <Text style={mStyles.label}>Reason</Text>
